@@ -236,7 +236,7 @@ final class MainWindowController: NSWindowController {
                 let (corrected, usedModel) = try await correct(source.string, key, model)
                 try Task.checkCancellation()
                 guard let self, revision == checkRevision else { return }
-                let outcome = try FormattingGuard.correct(corrected: corrected, original: source)
+                let outcome = CorrectionDiff.merge(corrected: corrected, into: source)
                 let correction = Correction(source: source, sourceWasRich: sourceWasRich, outcome: outcome, model: usedModel,
                                             duration: Date().timeIntervalSince(started), format: Preferences.format)
                 // Composing an accent changes the text without a change notification, so the revision can miss it.

@@ -47,7 +47,7 @@ extension MainWindowController {
         let sourceWasRich: Bool
         /// The original with corrected words, keeping the original attributes.
         let text: NSAttributedString
-        private(set) var changes: [WordChange]
+        private(set) var changes: [TextChange]
         let model: String
         let duration: TimeInterval
         /// What the corrected pane shows and what Copy writes.

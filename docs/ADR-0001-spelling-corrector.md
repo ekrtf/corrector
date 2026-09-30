@@ -9,7 +9,7 @@ The app is for one person on macOS, with AeroSpace managing windows. The user wa
 ## Proposed behavior
 
 1. Show a small floating window with the original and corrected text visible together. Launch it as a normal macOS app through Raycast or Spotlight; no menu-bar item or dedicated global shortcut.
-2. Submit pasted text to OpenRouter automatically. Fix misspelled words and accents only; preserve grammar, punctuation, wording, tone, and formatting.
+2. Submit pasted text to OpenRouter automatically. Fix misspelled words and accents only; preserve grammar, punctuation, wording, tone, and formatting. The prompt asks for this, but the app always shows the model's answer and highlights every difference from the original; an earlier guard that rejected answers changing punctuation or spacing was removed at the user's request.
 3. Keep the input visible while the request runs and show clear loading and error states.
 4. Copy the result to the clipboard on button press.
 5. Keep the OpenRouter API key in the app's preferences, never in the app bundle or source. (It was first kept in the Keychain, but every rebuild is a differently signed app, so macOS asked for the login password on each access; the user chose preferences instead.)

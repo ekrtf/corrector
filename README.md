@@ -18,7 +18,7 @@ The model menu defaults to **Automatic**, which picks the fastest model. It chec
 
 **Detect Format** treats pasted rich text as rich text. For plain text containing common Markdown markers, it renders the correction as rich text. You can force Plain Text, Markdown, or Rich Text with the format menu. Markdown rendering covers headings, nested lists, blockquotes (as indented italic paragraphs), bold, italic, strikethrough, links, inline code, and fenced code. The original remains visible as pasted.
 
-The app accepts only spelling and accent edits. If the model changes punctuation, whitespace, Markdown markers, a URL, or a code span, it shows an error with **Try Again** instead of copying altered text.
+The model is asked to fix only spelling and accents, but Corrector always shows its answer. Every difference from the original is highlighted, including punctuation, spacing, or wording the model changed on its own, so review the highlights before copying. Unchanged text keeps its original formatting.
 
 Settings (⌘,) holds the API key, the model, and three behaviors: check after pasting (on by default), check again when you stop typing, and hide Corrector after copying.
 
@@ -55,6 +55,6 @@ Then reload AeroSpace's configuration.
 ## Development
 
 - `./build.sh` creates `dist/Corrector.app`.
-- `swiftc Sources/Corrector/Corrections.swift Sources/Corrector/FormattingGuard.swift Tests/FormattingGuardTests.swift -o /tmp/corrector-formatting-tests && /tmp/corrector-formatting-tests` checks formatting preservation.
+- `swiftc Sources/Corrector/Corrections.swift Tests/CorrectionDiffTests.swift -o /tmp/corrector-diff-tests && /tmp/corrector-diff-tests` checks how corrections are compared and highlighted.
 - `swiftc -parse-as-library Sources/Corrector/MarkdownRenderer.swift Tests/MarkdownRenderingTests.swift -o /tmp/corrector-markdown-tests && /tmp/corrector-markdown-tests` checks Markdown rendering.
 - `swift scripts/make-icon.swift` regenerates `Resources/AppIcon.icns`.
