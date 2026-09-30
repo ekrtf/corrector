@@ -89,10 +89,10 @@ extension MainWindowController {
             present(as: format)
         }
 
+        /// The pane header already shows the count, so the subtitle says how the check ran.
         var summary: String {
-            let found = changes.isEmpty ? "No spelling mistakes" : Self.count(changes.count, "correction")
             let seconds = duration.formatted(.number.precision(.fractionLength(1)))
-            return "\(found) · \(ModelCatalog.displayName(for: model)) · \(seconds) s"
+            return "Checked with \(ModelCatalog.displayName(for: model)) in \(seconds) s"
         }
 
         static func count(_ value: Int, _ noun: String) -> String {

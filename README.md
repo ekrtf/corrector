@@ -6,17 +6,39 @@ A small floating macOS app for spelling corrections in French and English.
 
 Run `./install.sh` in this directory. It builds the app with the macOS Swift command-line tools and puts `Corrector.app` in `~/Applications`. Launch **Corrector** from Raycast or Spotlight. No Xcode project or menu-bar item is required.
 
-On first launch, enter an OpenRouter API key. The app stores it in the macOS Keychain. Pasted text is sent to OpenRouter; the app does not save a text history.
+On first launch, Settings opens so you can enter an OpenRouter API key. The app stores it in the macOS Keychain. Pasted text is sent to OpenRouter; the app does not save a text history.
 
 ## Use
 
-Paste text into **Original**. A correction starts automatically. Review **Corrected**, then click **Copy corrected text**. The clipboard receives rich text, including a plain-text representation for apps that do not accept formatting.
+Paste text into **Original**. Corrector checks it automatically and shows the result in **Corrected**. Misspelled words are underlined in the original and highlighted in the correction. Press **Copy** in the toolbar (⇧⌘C) to put the corrected text on the clipboard. Text you pasted as rich text, or Markdown that Corrector rendered, is copied as rich text with a plain-text fallback. Anything else is copied as plain text, so it takes the style of the app you paste it into.
 
-The model menu defaults to **Automatic (fastest)**. It checks OpenRouter's recent latency ranking and selects the first available model from a small set of general-purpose models suitable for French and English. The selection is cached for 30 minutes. You can choose a listed model or enter any OpenRouter model ID with **Other model…**.
+You can also type in **Original**. The previous result stays visible but dimmed until you check again with ⌘↩. **Apply Corrections to Original** (⌥⌘↩) replaces the original with the corrected text as one undoable edit, so you can keep writing.
 
-**Detect format** treats pasted rich text as rich text. For plain text containing common Markdown markers, it renders the correction as rich text. You can force Plain text, Markdown, or Rich text with the format menu. Markdown rendering covers headings, simple lists, blockquotes, bold, italic, links, inline code, and fenced code. The original remains visible as pasted.
+The model menu defaults to **Automatic**, which picks the fastest model. It checks OpenRouter's recent latency ranking and selects the first available model from a small set of general-purpose models suitable for French and English. The selection is cached for 30 minutes. You can choose a listed model or enter any OpenRouter model ID with **Other Model…**.
 
-The app accepts only spelling and accent edits. If the model changes punctuation, whitespace, Markdown markers, a URL, or a code span, it shows an error instead of copying altered text. Manual edits to the original clear the previous result; paste again to request a new correction.
+**Detect Format** treats pasted rich text as rich text. For plain text containing common Markdown markers, it renders the correction as rich text. You can force Plain Text, Markdown, or Rich Text with the format menu. Markdown rendering covers headings, nested lists, blockquotes (as indented italic paragraphs), bold, italic, strikethrough, links, inline code, and fenced code. The original remains visible as pasted.
+
+The app accepts only spelling and accent edits. If the model changes punctuation, whitespace, Markdown markers, a URL, or a code span, it shows an error with **Try Again** instead of copying altered text.
+
+Settings (⌘,) holds the API key, the model, and three behaviors: check after pasting (on by default), check again when you stop typing, and hide Corrector after copying.
+
+### Keyboard shortcuts
+
+| Action | Shortcut |
+| --- | --- |
+| Check spelling | ⌘↩ |
+| Copy corrected text | ⇧⌘C |
+| Apply corrections to original | ⌥⌘↩ |
+| New (clear both panes) | ⌘N |
+| Focus Original / Corrected | ⌘1 / ⌘2 |
+| Zoom in / out / actual size | ⌘+ / ⌘− / ⌘0 |
+| Find, find next, find previous | ⌘F, ⌘G, ⇧⌘G |
+| Paste and Match Style | ⌥⇧⌘V |
+| Hide the window | Esc, ⌘W |
+| Settings | ⌘, |
+| Quit | ⌘Q |
+
+The standard editing, window, and app shortcuts (⌘Z, ⇧⌘Z, ⌘X, ⌘C, ⌘V, ⌘A, ⌘M, ⌘H, ⌥⌘H, ⌥⌘T) work as in other Mac apps.
 
 ## AeroSpace
 
@@ -33,5 +55,6 @@ Then reload AeroSpace's configuration.
 ## Development
 
 - `./build.sh` creates `dist/Corrector.app`.
-- `swiftc Sources/Corrector/FormattingGuard.swift Tests/FormattingGuardTests.swift -o /tmp/corrector-formatting-tests && /tmp/corrector-formatting-tests` checks formatting preservation.
+- `swiftc Sources/Corrector/Corrections.swift Sources/Corrector/FormattingGuard.swift Tests/FormattingGuardTests.swift -o /tmp/corrector-formatting-tests && /tmp/corrector-formatting-tests` checks formatting preservation.
 - `swiftc -parse-as-library Sources/Corrector/MarkdownRenderer.swift Tests/MarkdownRenderingTests.swift -o /tmp/corrector-markdown-tests && /tmp/corrector-markdown-tests` checks Markdown rendering.
+- `swift scripts/make-icon.swift` regenerates `Resources/AppIcon.icns`.

@@ -1,14 +1,14 @@
 // Draws the Corrector app icon and writes Resources/AppIcon.icns.
 //
-//   swift scripts/make-icon.swift                 # regenerate Resources/AppIcon.icns
-//   swift scripts/make-icon.swift --preview DIR   # also write PNG previews to DIR
+//   swift scripts/make-icon.swift                      # regenerate Resources/AppIcon.icns
+//   swift scripts/make-icon.swift --preview DIR        # write PNG previews to DIR instead
+//   --variant b (default): graphite "é" with a blue check on white
+//   --variant a: white "é" on blue;  --variant c: graphite "é" on a white sheet over blue
 //
-// The artwork is vector-only (no fonts, no SF Symbols) and follows the macOS icon grid: a 1024 px canvas
-// holding an 824 px continuous-corner body with a soft drop shadow. Each iconset size is rendered from the
-// vectors, so small sizes stay crisp; 16 and 32 px drop the back sheet, whose rotated edges blur there.
-//
-// Concept: a sheet of text whose big "é" has a green check mark for its acute accent. The accent is the
-// correction.
+// One idea: a lowercase "é" whose acute accent is a check mark. The accent is the correction.
+// Vector-only (no fonts, no SF Symbols), on the macOS icon grid: a 1024 px canvas holding an 824 px
+// continuous-corner body with a soft drop shadow. Every size is rendered from the vectors, and the
+// output is byte-reproducible.
 
 import CoreGraphics
 import Foundation
@@ -17,6 +17,8 @@ import ImageIO
 let canvas: CGFloat = 1024
 let bodyRect = CGRect(x: 100, y: 100, width: 824, height: 824)
 let bodyRadius: CGFloat = 185.4
+
+typealias Stops = [(CGFloat, CGColor)]
 
 func rgb(_ hex: UInt32, _ alpha: CGFloat = 1) -> CGColor {
     CGColor(
@@ -27,7 +29,7 @@ func rgb(_ hex: UInt32, _ alpha: CGFloat = 1) -> CGColor {
     )
 }
 
-func gradient(_ stops: [(CGFloat, CGColor)]) -> CGGradient {
+func gradient(_ stops: Stops) -> CGGradient {
     CGGradient(
         colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
         colors: stops.map(\.1) as CFArray,
@@ -84,23 +86,106 @@ func continuousRoundedRect(_ rect: CGRect, radius: CGFloat, smoothing: CGFloat =
     return path
 }
 
-func polyline(_ points: CGPoint...) -> CGPath {
-    let path = CGMutablePath()
-    path.addLines(between: points)
-    return path
+// The glyph, measured in units of the letter's half-height and centred on `center` (y-down).
+struct Glyph {
+    let letter: CGPath
+    let check: CGPath
+
+    init(center: CGPoint, size ry: CGFloat) {
+        // Round letters are drawn a touch taller than wide, and horizontals thinner than verticals,
+        // so the stroke reads as one even weight.
+        let rx = ry * 0.95
+        let stem = ry * 0.38
+        let hair = stem * 0.86
+        let bar = stem * 0.80
+        let checkWidth = stem * 0.92
+        let gap = ry * 0.16
+        let longArm = CGVector(dx: ry * 0.50, dy: -ry * 0.66)
+        let shortArm = CGVector(dx: -ry * 0.31, dy: -ry * 0.27)
+
+        // Centre the letter-plus-accent group on `center`.
+        let groupHeight = 2 * ry + gap + checkWidth - longArm.dy
+        let c = CGPoint(x: center.x, y: center.y + groupHeight / 2 - ry)
+
+        let outer = CGPath(ellipseIn: CGRect(x: c.x - rx, y: c.y - ry, width: 2 * rx, height: 2 * ry), transform: nil)
+        let inner = CGPath(
+            ellipseIn: CGRect(x: c.x - rx + stem, y: c.y - ry + hair, width: 2 * (rx - stem), height: 2 * (ry - hair)),
+            transform: nil
+        )
+        let barCenter = c.y - ry * 0.05
+        let barBottom = barCenter + bar / 2
+
+        // The aperture: everything right of the counter between the crossbar and an angled terminal cut.
+        let terminal = CGFloat.pi / 180 * 34
+        let cut = CGFloat.pi / 180 * 52
+        let cutDirection = CGVector(dx: cos(cut), dy: sin(cut))
+        let onStroke = CGPoint(x: c.x + (rx - stem / 2) * cos(terminal), y: c.y + (ry - hair / 2) * sin(terminal))
+        let aperture = CGMutablePath()
+        aperture.addLines(between: [
+            CGPoint(x: c.x, y: barBottom),
+            CGPoint(x: c.x + 3 * rx, y: barBottom),
+            CGPoint(x: onStroke.x + cutDirection.dx * 3 * rx, y: onStroke.y + cutDirection.dy * 3 * rx),
+            CGPoint(x: onStroke.x - cutDirection.dx * stem, y: onStroke.y - cutDirection.dy * stem),
+        ])
+        aperture.closeSubpath()
+        let crossbar = CGPath(
+            rect: CGRect(x: c.x - rx + stem / 2, y: barCenter - bar / 2, width: 2 * rx - stem, height: bar),
+            transform: nil
+        )
+        letter = outer.subtracting(inner).subtracting(aperture).union(crossbar)
+
+        // The check's long stroke has the slant of an acute accent and sits right of centre, like one.
+        let vertex = CGPoint(x: c.x + rx * 0.06, y: c.y - ry - gap - checkWidth / 2)
+        let mark = CGMutablePath()
+        mark.addLines(between: [
+            CGPoint(x: vertex.x + shortArm.dx, y: vertex.y + shortArm.dy),
+            vertex,
+            CGPoint(x: vertex.x + longArm.dx, y: vertex.y + longArm.dy),
+        ])
+        check = mark.copy(strokingWithWidth: checkWidth, lineCap: .round, lineJoin: .round, miterLimit: 10).normalized()
+    }
+}
+
+struct Style {
+    var background: Stops
+    var sheen: CGFloat
+    var hairline: CGColor?
+    var sheet: Bool
+    var letter: Stops
+    var check: Stops
+    var glyphShadow: CGColor
+    var glyphSize: CGFloat
+
+    static let variants: [String: Style] = [
+        // White glyph on system blue.
+        "a": Style(
+            background: [(0, rgb(0x52ADFF)), (1, rgb(0x0A5FE0))], sheen: 0.18, hairline: nil, sheet: false,
+            letter: [(0, rgb(0xFFFFFF)), (1, rgb(0xE6EFFD))], check: [(0, rgb(0xFFFFFF)), (1, rgb(0xE6EFFD))],
+            glyphShadow: rgb(0x06327A, 0.24), glyphSize: 170
+        ),
+        // Graphite glyph and a blue check on white.
+        "b": Style(
+            background: [(0, rgb(0xFFFFFF)), (1, rgb(0xE8EAEF))], sheen: 0, hairline: rgb(0x000000, 0.06), sheet: false,
+            letter: [(0, rgb(0x41444D)), (1, rgb(0x1E2026))], check: [(0, rgb(0x3FA2FF)), (1, rgb(0x0A64EC))],
+            glyphShadow: rgb(0x000000, 0.14), glyphSize: 170
+        ),
+        // A single sheet on system blue carrying a graphite glyph and a green check.
+        "c": Style(
+            background: [(0, rgb(0x52ADFF)), (1, rgb(0x0A5FE0))], sheen: 0.18, hairline: nil, sheet: true,
+            letter: [(0, rgb(0x41444D)), (1, rgb(0x1E2026))], check: [(0, rgb(0x3ED46A)), (1, rgb(0x1E9E48))],
+            glyphShadow: rgb(0x000000, 0.14), glyphSize: 128
+        ),
+    ]
 }
 
 // Drawing happens in a 1024-unit, y-down space; `scale` maps it to output pixels.
 struct IconRenderer {
     let pixels: Int
+    let style: Style
     var scale: CGFloat { CGFloat(pixels) / canvas }
-    var showsBackSheet: Bool { pixels >= 64 }
 
-    // Paper edges sit on the 16 px and 32 px pixel grids so the small sizes stay sharp.
-    let paperRect = CGRect(x: 256, y: 176, width: 512, height: 672)
-    let paperRadius: CGFloat = 34
-    let letterCenter = CGPoint(x: 512, y: 526)
-    let letterRadius: CGFloat = 100
+    // Sheet edges sit on the 16 px and 32 px pixel grids so the small sizes stay sharp.
+    let sheetRect = CGRect(x: 256, y: 192, width: 512, height: 640)
 
     func render() -> CGImage {
         let context = CGContext(
@@ -111,11 +196,14 @@ struct IconRenderer {
         context.translateBy(x: 0, y: CGFloat(pixels))
         context.scaleBy(x: scale, y: -scale)
         drawBody(context)
-        if showsBackSheet { drawBackSheet(context) }
-        drawPaper(context)
-        drawLines(context)
-        drawLetter(context)
-        drawCheckAccent(context)
+        let center: CGPoint
+        if style.sheet {
+            drawSheet(context)
+            center = CGPoint(x: sheetRect.midX, y: sheetRect.midY - 4)
+        } else {
+            center = CGPoint(x: 512, y: 498)
+        }
+        drawGlyph(context, Glyph(center: center, size: style.glyphSize))
         return context.makeImage()!
     }
 
@@ -124,13 +212,26 @@ struct IconRenderer {
         context.setShadow(offset: CGSize(width: 0, height: -y * scale), blur: blur * scale, color: color)
     }
 
-    func fill(_ context: CGContext, _ path: CGPath, top: CGFloat, bottom: CGFloat, _ stops: [(CGFloat, CGColor)]) {
+    func fill(_ context: CGContext, _ path: CGPath, in bounds: CGRect, _ stops: Stops) {
         context.saveGState()
         context.addPath(path)
         context.clip()
         context.drawLinearGradient(
-            gradient(stops), start: CGPoint(x: 0, y: top), end: CGPoint(x: 0, y: bottom), options: []
+            gradient(stops), start: CGPoint(x: 0, y: bounds.minY), end: CGPoint(x: 0, y: bounds.maxY), options: []
         )
+        context.restoreGState()
+    }
+
+    // Shades the inside of `path` along its lower edge, so the shape reads as gently rounded.
+    func innerShadow(_ context: CGContext, _ path: CGPath, y: CGFloat, blur: CGFloat, color: CGColor) {
+        context.saveGState()
+        context.addPath(path)
+        context.clip()
+        setShadow(context, y: y, blur: blur, color: color)
+        context.addRect(CGRect(x: -canvas, y: -canvas, width: canvas * 3, height: canvas * 3))
+        context.addPath(path)
+        context.setFillColor(rgb(0x000000))
+        context.fillPath(using: .evenOdd)
         context.restoreGState()
     }
 
@@ -138,116 +239,55 @@ struct IconRenderer {
         let body = continuousRoundedRect(bodyRect, radius: bodyRadius)
 
         context.saveGState()
-        setShadow(context, y: 12, blur: 28, color: rgb(0x000000, 0.32))
+        setShadow(context, y: 12, blur: 28, color: rgb(0x000000, 0.30))
         context.addPath(body)
-        context.setFillColor(rgb(0x3F5BEF))
+        context.setFillColor(style.background[0].1)
         context.fillPath()
         context.restoreGState()
 
-        fill(context, body, top: bodyRect.minY, bottom: bodyRect.maxY, [
-            (0, rgb(0x5B8CFF)), (0.55, rgb(0x3F5BEF)), (1, rgb(0x3A2FC4)),
-        ])
-
-        context.saveGState()
-        context.addPath(body)
-        context.clip()
-        context.drawRadialGradient(
-            gradient([(0, rgb(0xFFFFFF, 0.22)), (1, rgb(0xFFFFFF, 0))]),
-            startCenter: CGPoint(x: 512, y: 150), startRadius: 0,
-            endCenter: CGPoint(x: 512, y: 150), endRadius: 560, options: []
-        )
-        context.restoreGState()
-
-        // A faint rim light along the top edge, fading out towards the bottom.
-        let rim = body.copy(strokingWithWidth: 4, lineCap: .butt, lineJoin: .round, miterLimit: 10)
-        fill(context, rim, top: bodyRect.minY, bottom: bodyRect.maxY, [
-            (0, rgb(0xFFFFFF, 0.35)), (0.35, rgb(0xFFFFFF, 0.06)), (1, rgb(0xFFFFFF, 0)),
-        ])
+        fill(context, body, in: bodyRect, style.background)
+        if style.sheen > 0 {
+            fill(context, body, in: CGRect(x: 0, y: bodyRect.minY, width: canvas, height: bodyRect.height * 0.55), [
+                (0, rgb(0xFFFFFF, style.sheen)), (1, rgb(0xFFFFFF, 0)),
+            ])
+        }
+        if let hairline = style.hairline {
+            context.saveGState()
+            context.addPath(body)
+            context.clip()
+            context.addPath(body)
+            context.setLineWidth(4)
+            context.setStrokeColor(hairline)
+            context.strokePath()
+            context.restoreGState()
+        }
     }
 
-    // A second sheet, turned slightly, hints at the original behind the corrected text.
-    func drawBackSheet(_ context: CGContext) {
+    func drawSheet(_ context: CGContext) {
+        let sheet = continuousRoundedRect(sheetRect, radius: 36)
         context.saveGState()
-        context.translateBy(x: paperRect.midX, y: paperRect.midY)
-        context.rotate(by: -.pi / 30)
-        context.translateBy(x: -paperRect.midX, y: -paperRect.midY)
-        let sheet = continuousRoundedRect(paperRect, radius: paperRadius)
-        setShadow(context, y: 10, blur: 30, color: rgb(0x10124A, 0.30))
+        setShadow(context, y: 14, blur: 36, color: rgb(0x0A2A6E, 0.40))
         context.addPath(sheet)
-        context.setFillColor(rgb(0xDCE3F2))
-        context.fillPath()
-        context.setShadow(offset: .zero, blur: 0, color: nil)
-        fill(context, sheet, top: paperRect.minY, bottom: paperRect.maxY, [(0, rgb(0xE6EBF6)), (1, rgb(0xD3DBEE))])
-        context.restoreGState()
-    }
-
-    func drawPaper(_ context: CGContext) {
-        let paper = continuousRoundedRect(paperRect, radius: paperRadius)
-
-        context.saveGState()
-        setShadow(context, y: 16, blur: 40, color: rgb(0x10124A, 0.40))
-        context.addPath(paper)
         context.setFillColor(rgb(0xFFFFFF))
         context.fillPath()
         context.restoreGState()
-
-        fill(context, paper, top: paperRect.minY, bottom: paperRect.maxY, [(0, rgb(0xFFFFFF)), (1, rgb(0xEDF0F6))])
+        fill(context, sheet, in: sheetRect, [(0, rgb(0xFFFFFF)), (1, rgb(0xEEF1F6))])
     }
 
-    func drawLines(_ context: CGContext) {
-        let left = paperRect.minX + 68
-        let right = paperRect.maxX - 68
-        let first = letterCenter.y + letterRadius + 84
-        let second = first + 62
+    func drawGlyph(_ context: CGContext, _ glyph: Glyph) {
+        let bounds = glyph.letter.boundingBox.union(glyph.check.boundingBox)
+        let both = glyph.letter.union(glyph.check)
 
         context.saveGState()
-        context.setLineCap(.round)
-        context.setLineWidth(28)
-        context.setStrokeColor(rgb(0xCBD1DC))
-        context.addPath(polyline(CGPoint(x: left, y: first), CGPoint(x: left + 120, y: first)))
-        context.addPath(polyline(CGPoint(x: left + 312, y: first), CGPoint(x: right, y: first)))
-        context.addPath(polyline(CGPoint(x: left, y: second), CGPoint(x: right - 100, y: second)))
-        context.strokePath()
-
-        // A corrected word, highlighted the way the app marks replacements.
-        context.setStrokeColor(rgb(0x9BE3AF))
-        context.addPath(polyline(CGPoint(x: left + 162, y: first), CGPoint(x: left + 270, y: first)))
-        context.strokePath()
+        setShadow(context, y: 6, blur: 16, color: style.glyphShadow)
+        context.addPath(both)
+        context.setFillColor(style.letter[0].1)
+        context.fillPath()
         context.restoreGState()
-    }
 
-    // A geometric lowercase "e": crossbar, then the bowl drawn from 3 o'clock over the top to an open tail.
-    func drawLetter(_ context: CGContext) {
-        let c = letterCenter, r = letterRadius
-        let e = CGMutablePath()
-        e.move(to: CGPoint(x: c.x - r, y: c.y))
-        e.addLine(to: CGPoint(x: c.x + r, y: c.y))
-        e.addArc(center: c, radius: r, startAngle: 0, endAngle: -.pi * 1.76, clockwise: true)
-
-        context.saveGState()
-        context.setLineCap(.round)
-        context.setLineJoin(.round)
-        context.setLineWidth(r * 0.44)
-        context.setStrokeColor(rgb(0x1C2138))
-        context.addPath(e)
-        context.strokePath()
-        context.restoreGState()
-    }
-
-    // The acute accent is a check mark whose long stroke has the accent's slant.
-    func drawCheckAccent(_ context: CGContext) {
-        let c = letterCenter, r = letterRadius
-        let vertex = CGPoint(x: c.x + 0.16 * r, y: c.y - 1.70 * r)
-        let check = polyline(
-            CGPoint(x: vertex.x - 0.34 * r, y: vertex.y - 0.30 * r),
-            vertex,
-            CGPoint(x: vertex.x + 0.72 * r, y: vertex.y - 0.94 * r)
-        )
-
-        let stroke = check.copy(strokingWithWidth: r * 0.40, lineCap: .round, lineJoin: .round, miterLimit: 10)
-        fill(context, stroke, top: vertex.y - r * 1.2, bottom: vertex.y + r * 0.2, [
-            (0, rgb(0x3FD467)), (1, rgb(0x1E9E48)),
-        ])
+        fill(context, glyph.letter, in: bounds, style.letter)
+        fill(context, glyph.check, in: glyph.check.boundingBox, style.check)
+        innerShadow(context, both, y: -4, blur: 10, color: rgb(0x000000, 0.10))
     }
 }
 
@@ -261,21 +301,33 @@ func writePNG(_ image: CGImage, to url: URL) throws {
     }
 }
 
+func fail(_ message: String) -> Never {
+    FileHandle.standardError.write(Data((message + "\n").utf8))
+    exit(1)
+}
+
 let fileManager = FileManager.default
 let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
 let arguments = Array(CommandLine.arguments.dropFirst())
 
-if let flag = arguments.firstIndex(of: "--preview") {
-    guard flag + 1 < arguments.count else {
-        FileHandle.standardError.write(Data("usage: make-icon.swift [--preview DIR]\n".utf8))
-        exit(2)
-    }
-    let directory = URL(fileURLWithPath: arguments[flag + 1])
+func option(_ name: String) -> String? {
+    guard let index = arguments.firstIndex(of: name) else { return nil }
+    guard index + 1 < arguments.count else { fail("usage: make-icon.swift [--variant a|b|c] [--preview DIR]") }
+    return arguments[index + 1]
+}
+
+let variant = option("--variant") ?? "b"
+guard let style = Style.variants[variant] else { fail("unknown variant \(variant); use a, b or c") }
+
+if let preview = option("--preview") {
+    let directory = URL(fileURLWithPath: preview)
     try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-    for pixels in [1024, 256, 64, 32, 16] {
-        try writePNG(IconRenderer(pixels: pixels).render(), to: directory.appendingPathComponent("icon-\(pixels).png"))
+    for pixels in [1024, 256, 128, 64, 32, 16] {
+        let image = IconRenderer(pixels: pixels, style: style).render()
+        try writePNG(image, to: directory.appendingPathComponent("icon-\(pixels).png"))
     }
-    print("Wrote previews to \(directory.path)")
+    print("Wrote variant \(variant) previews to \(directory.path)")
+    exit(0)
 }
 
 let work = fileManager.temporaryDirectory.appendingPathComponent("corrector-icon-\(UUID().uuidString)")
@@ -285,7 +337,8 @@ try fileManager.createDirectory(at: iconset, withIntermediateDirectories: true)
 for points in [16, 32, 128, 256, 512] {
     for factor in [1, 2] {
         let name = factor == 1 ? "icon_\(points)x\(points).png" : "icon_\(points)x\(points)@2x.png"
-        try writePNG(IconRenderer(pixels: points * factor).render(), to: iconset.appendingPathComponent(name))
+        let image = IconRenderer(pixels: points * factor, style: style).render()
+        try writePNG(image, to: iconset.appendingPathComponent(name))
     }
 }
 
@@ -297,8 +350,5 @@ iconutil.arguments = ["-c", "icns", iconset.path, "-o", output.path]
 try iconutil.run()
 iconutil.waitUntilExit()
 try? fileManager.removeItem(at: work)
-guard iconutil.terminationStatus == 0 else {
-    FileHandle.standardError.write(Data("iconutil failed with status \(iconutil.terminationStatus)\n".utf8))
-    exit(1)
-}
-print("Wrote \(output.path)")
+guard iconutil.terminationStatus == 0 else { fail("iconutil failed with status \(iconutil.terminationStatus)") }
+print("Wrote variant \(variant) to \(output.path)")

@@ -20,7 +20,7 @@ struct ModelOption: Equatable {
 }
 
 enum ModelCatalog {
-    static let automatic = ModelOption(title: "Automatic (Fastest)", id: nil)
+    static let automatic = ModelOption(title: "Automatic", id: nil)
     static let presets: [ModelOption] = [
         ModelOption(title: "DeepSeek V4.1 Flash", id: "deepseek/deepseek-v4.1-flash"),
         ModelOption(title: "Mistral Small", id: "mistralai/mistral-small-2603"),

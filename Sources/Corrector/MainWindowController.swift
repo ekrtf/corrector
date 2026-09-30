@@ -20,7 +20,7 @@ final class MainWindowController: NSWindowController {
     private var defaultTypingAttributes: [NSAttributedString.Key: Any] = [:]
 
     private var state = State.idle { didSet { render() } }
-    private var sourceWasRichText = false
+    private var sourceWasRichText = false { didSet { sourceView.writesRichText = sourceWasRichText } }
     private var cachedAPIKey: String?
     private var checkTask: Task<Void, Never>?
     private var typingCheck: Task<Void, Never>?
@@ -147,7 +147,10 @@ final class MainWindowController: NSWindowController {
         sourceView.nextKeyView = resultView
         resultView.nextKeyView = sourceView
         defaultTypingAttributes = sourceView.typingAttributes
+        sourceView.writesRichText = false
         applyZoom(Preferences.textZoom)
+        sourcePane.onZoomChange = { [weak self] in self?.setZoom($0) }
+        resultPane.onZoomChange = { [weak self] in self?.setZoom($0) }
         scrollSynchronizer = ScrollSynchronizer(sourcePane.scrollView, resultPane.scrollView)
     }
 
@@ -235,8 +238,10 @@ final class MainWindowController: NSWindowController {
                 try Task.checkCancellation()
                 guard let self, revision == checkRevision else { return }
                 let outcome = try FormattingGuard.correct(corrected: corrected, original: source)
-                state = .done(Correction(source: source, sourceWasRich: sourceWasRich, outcome: outcome, model: model,
-                                         duration: Date().timeIntervalSince(started), format: Preferences.format))
+                let correction = Correction(source: source, sourceWasRich: sourceWasRich, outcome: outcome, model: model,
+                                            duration: Date().timeIntervalSince(started), format: Preferences.format)
+                // Composing an accent changes the text without a change notification, so the revision can miss it.
+                state = sourceView.attributedString().isEqual(to: source) ? .done(correction) : .stale(correction)
             } catch is CancellationError {
             } catch {
                 // URLSession reports cancellation as an error too; the revision check covers it.
@@ -273,7 +278,6 @@ final class MainWindowController: NSWindowController {
         checkTask?.cancel()
         typingCheck?.cancel()
         let text = sourceView.attributedString()
-        if text.length == 0 { sourceWasRichText = false }
 
         switch state {
         case .done(let correction), .stale(let correction):
@@ -282,7 +286,11 @@ final class MainWindowController: NSWindowController {
             } else {
                 // Undoing back to the checked text brings the result back.
                 let current = text.isEqual(to: correction.source)
-                if current != state.isDone { state = current ? .done(correction) : .stale(correction) }
+                if current != state.isDone {
+                    state = current ? .done(correction) : .stale(correction)
+                } else if current {
+                    render()
+                }
             }
         case .checking, .failed:
             state = restingState
@@ -396,7 +404,8 @@ final class MainWindowController: NSWindowController {
             symbol = "arrow.clockwise"
             statusSubtitle = "Text changed — press ⌘↩ to check again"
         case .failed(let error):
-            message = PaneMessage(symbol: "exclamationmark.triangle", title: "Couldn’t check spelling", detail: error,
+            message = PaneMessage(symbol: "exclamationmark.triangle", symbolTint: .systemOrange,
+                                  title: "Couldn’t check spelling", detail: error,
                                   actionTitle: "Try Again", action: { [weak self] in self?.check() })
             statusSubtitle = "Check failed"
         }
@@ -405,7 +414,6 @@ final class MainWindowController: NSWindowController {
         resultPane.detailText = detail
         resultPane.detailSymbol = symbol
         resultPane.detailTint = tint
-        resultPane.isBusy = { if case .checking = state { true } else { false } }()
         resultPane.isDimmed = state.isStale
         showResult(state.correction)
         if case .done(let correction) = state {
@@ -423,6 +431,7 @@ final class MainWindowController: NSWindowController {
             shownResult = text
             resultView.textStorage?.setAttributedString(text ?? NSAttributedString())
         }
+        resultView.writesRichText = correction?.copiesRichText ?? false
         if let correction {
             resultView.setHighlights(correction.displayHighlights, style: .correction)
         } else {
@@ -458,6 +467,15 @@ final class MainWindowController: NSWindowController {
     private func setZoom(_ zoom: CGFloat) {
         Preferences.textZoom = zoom
         applyZoom(Preferences.textZoom)
+    }
+
+    /// Makes undo of a text edit also bring back the result that matched the text before it.
+    private func registerStateUndo(restoring previous: State) {
+        sourceView.undoManager?.registerUndo(withTarget: self) { controller in
+            let current = controller.state
+            controller.state = previous
+            controller.registerStateUndo(restoring: current)
+        }
     }
 
     // MARK: - Actions
@@ -501,8 +519,10 @@ final class MainWindowController: NSWindowController {
         sourcePane.scrollView.contentView.scroll(to: scrollOrigin)
         sourcePane.scrollView.reflectScrolledClipView(sourcePane.scrollView.contentView)
 
+        let checked = state
         correction.markApplied(source: NSAttributedString(attributedString: storage), format: Preferences.format)
         state = .done(correction)
+        registerStateUndo(restoring: checked)
         flash("Corrections applied")
     }
 
@@ -516,7 +536,9 @@ final class MainWindowController: NSWindowController {
             }
         }
         sourceView.typingAttributes = defaultTypingAttributes
+        let wasRich = sourceWasRichText
         sourceWasRichText = false
+        sourceView.undoManager?.registerUndo(withTarget: self) { $0.sourceWasRichText = wasRich }
         checkTask?.cancel()
         typingCheck?.cancel()
         revision += 1
@@ -677,34 +699,36 @@ extension MainWindowController: NSToolbarDelegate {
         case ToolbarID.format:
             return popupItem(identifier, label: "Format", popup: formatPopup)
         case ToolbarID.check:
-            let item = NSToolbarItem(itemIdentifier: identifier)
-            item.label = "Check"
-            item.toolTip = "Check Spelling (⌘↩)"
-            item.image = NSImage(systemSymbolName: "checkmark.circle", accessibilityDescription: "Check Spelling")
-            item.isBordered = true
-            item.target = self
-            item.action = #selector(checkText(_:))
-            item.visibilityPriority = .high
-            return item
+            return buttonItem(identifier, title: "Check", symbol: "text.badge.checkmark",
+                              toolTip: "Check Spelling (⌘↩)", action: #selector(checkText(_:)))
         case ToolbarID.copy:
-            let button = NSButton(title: "Copy",
-                                  image: NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil) ?? NSImage(),
-                                  target: self, action: #selector(copyCorrectedText(_:)))
-            button.bezelStyle = .toolbar
-            button.translatesAutoresizingMaskIntoConstraints = false
-            button.imagePosition = .imageLeading
-            button.contentTintColor = .controlAccentColor
-            button.toolTip = "Copy Corrected Text (⇧⌘C)"
-            let item = ValidatedToolbarItem(itemIdentifier: identifier)
-            item.view = button
-            item.label = "Copy"
-            item.toolTip = button.toolTip
-            item.visibilityPriority = .high
-            item.isValid = { [weak self] in self?.canPerform(#selector(MainWindowController.copyCorrectedText(_:))) ?? false }
+            let item = buttonItem(identifier, title: "Copy", symbol: "doc.on.doc",
+                                  toolTip: "Copy Corrected Text (⇧⌘C)", action: #selector(copyCorrectedText(_:)))
+            // The toolbar bezel ignores bezelColor; a push button draws the accent fill like a default button.
+            if let button = item.view as? NSButton {
+                button.bezelStyle = .push
+                button.bezelColor = .controlAccentColor
+            }
             return item
         default:
             return nil
         }
+    }
+
+    private func buttonItem(_ identifier: NSToolbarItem.Identifier, title: String, symbol: String,
+                            toolTip: String, action: Selector) -> NSToolbarItem {
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) ?? NSImage()
+        let button = NSButton(title: title, image: image, target: self, action: action)
+        button.bezelStyle = .toolbar
+        button.imagePosition = .imageLeading
+        button.toolTip = toolTip
+        let item = ValidatedToolbarItem(itemIdentifier: identifier)
+        item.view = button
+        item.label = title
+        item.toolTip = toolTip
+        item.visibilityPriority = .high
+        item.isValid = { [weak self] in self?.canPerform(action) ?? false }
+        return item
     }
 
     private func popupItem(_ identifier: NSToolbarItem.Identifier, label: String, popup: NSPopUpButton) -> NSToolbarItem {

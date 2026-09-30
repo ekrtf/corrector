@@ -6,6 +6,13 @@ final class EditorTextView: NSTextView {
     /// Called just before a paste. The argument is true when the paste keeps rich text formatting.
     var onPasteboardKind: ((Bool) -> Void)?
     var placeholder: String? { didSet { needsDisplay = true } }
+    /// Whether Copy, Cut and drags offer rich text. Plain text must stay plain so that pasting it back
+    /// is not mistaken for a rich-text paste, and the display font never reaches other apps.
+    var writesRichText = true
+
+    override var writablePasteboardTypes: [NSPasteboard.PasteboardType] {
+        writesRichText ? super.writablePasteboardTypes : [.string]
+    }
 
     /// Attributes for text the app inserts itself, matching what the user gets when typing.
     nonisolated static var textAttributes: [NSAttributedString.Key: Any] {
@@ -45,7 +52,8 @@ final class EditorTextView: NSTextView {
         maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
         isVerticallyResizable = true
         isHorizontallyResizable = false
-        autoresizingMask = [.width]
+        // EditorPane sets the width itself; autoresizing ignores magnification and would fight it.
+        autoresizingMask = []
         textContainer?.widthTracksTextView = true
         textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
 

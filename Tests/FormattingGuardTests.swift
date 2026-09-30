@@ -51,7 +51,7 @@ struct FormattingGuardTests {
         precondition(outcome.changes.map(\.replacement) == ["écrit", "aujourd’hui", "l'été", "Écrit", "écrit"])
         for change in outcome.changes {
             precondition((text as NSString).substring(with: change.sourceRange) == change.original)
-            precondition((corrected as NSString).substring(with: change.resultRange) == change.replacement)
+            precondition((outcome.text.string as NSString).substring(with: change.resultRange) == change.replacement)
         }
         // The emoji is two UTF-16 units; the repeated word keeps its own position.
         precondition(outcome.changes[0].sourceRange == NSRange(location: 8, length: 5))
@@ -65,10 +65,14 @@ struct FormattingGuardTests {
         let empty = try FormattingGuard.correct(corrected: "", original: NSAttributedString(string: ""))
         precondition(empty.changes.isEmpty && empty.text.length == 0)
 
-        // Decomposed accent → composed accent: the text follows the model exactly, but nothing visible changed.
-        let composed = try FormattingGuard.correct(corrected: "un caf\u{E9} froid", original: NSAttributedString(string: "un cafe\u{301} froid"))
-        precondition(composed.text.string.utf16.elementsEqual("un caf\u{E9} froid".utf16))
-        precondition(composed.changes.isEmpty)
+        // Decomposed accent → composed accent is not a change: the original bytes stay, even in code spans.
+        let decomposed = NSAttributedString(string: "un cafe\u{301} froid, `re\u{301}sume\u{301}.txt` et ecrit")
+        let composed = try FormattingGuard.correct(corrected: "un caf\u{E9} froid, `r\u{E9}sum\u{E9}.txt` et écrit",
+                                                   original: decomposed)
+        precondition(composed.text.string.utf16.elementsEqual("un cafe\u{301} froid, `re\u{301}sume\u{301}.txt` et écrit".utf16))
+        precondition(composed.changes.map(\.replacement) == ["écrit"])
+        // Result ranges index the returned text, not the model's answer.
+        precondition((composed.text.string as NSString).substring(with: composed.changes[0].resultRange) == "écrit")
     }
 
     static func checkRejections() throws {

@@ -10,6 +10,8 @@ enum HighlightStyle {
 /// A centered message shown in a pane instead of its text.
 struct PaneMessage {
     var symbol: String
+    /// Tint for the symbol; nil uses the quiet tertiary label color.
+    var symbolTint: NSColor? = nil
     var title: String
     var detail: String? = nil
     var actionTitle: String? = nil
@@ -18,7 +20,7 @@ struct PaneMessage {
     var showsProgress = false
 
     fileprivate func looksLike(_ other: PaneMessage) -> Bool {
-        symbol == other.symbol && title == other.title && detail == other.detail
+        symbol == other.symbol && symbolTint == other.symbolTint && title == other.title && detail == other.detail
             && actionTitle == other.actionTitle && showsProgress == other.showsProgress
     }
 }
@@ -45,13 +47,6 @@ final class EditorPane: NSView {
     }
     var detailTint: NSColor? {
         didSet { detailImage.contentTintColor = detailTint ?? .secondaryLabelColor }
-    }
-    var isBusy = false {
-        didSet {
-            guard isBusy != oldValue else { return }
-            spinner.isHidden = !isBusy
-            isBusy ? spinner.startAnimation(nil) : spinner.stopAnimation(nil)
-        }
     }
     /// Fades the text, for a result that no longer matches the original.
     var isDimmed = false {
@@ -91,7 +86,6 @@ final class EditorPane: NSView {
     private let titleLabel: NSTextField
     private let detailLabel = NSTextField(labelWithString: "")
     private let detailImage = NSImageView()
-    private let spinner = NSProgressIndicator()
     private let headerSeparator = NSBox()
     private let messageView = EditorMessageView()
 
@@ -134,16 +128,10 @@ final class EditorPane: NSView {
         detailImage.isHidden = true
         detailImage.setAccessibilityElement(false)
 
-        spinner.style = .spinning
-        spinner.controlSize = .small
-        spinner.isDisplayedWhenStopped = false
-        spinner.isHidden = true
-
-        let trailing = NSStackView(views: [spinner, detailImage, detailLabel])
+        let trailing = NSStackView(views: [detailImage, detailLabel])
         trailing.orientation = .horizontal
         trailing.alignment = .centerY
         trailing.spacing = 5
-        trailing.setCustomSpacing(8, after: spinner)
         trailing.setHuggingPriority(.required, for: .horizontal)
 
         headerSeparator.boxType = .separator
@@ -208,11 +196,15 @@ final class EditorPane: NSView {
     }
 
     @objc private func clipViewDidChange(_ notification: Notification) {
-        // Autoresizing ignores magnification, so keep the text as wide as what is visible. The tolerance
-        // avoids a feedback loop with the clip view's rounding of magnified bounds.
-        let width = scrollView.contentView.bounds.width
-        if width > 0, abs(textView.frame.width - width) > 0.5 {
-            textView.setFrameSize(NSSize(width: width, height: textView.frame.height))
+        // Autoresizing ignores magnification, so keep the text as wide as what is visible and at least as
+        // tall (so a click below short text still lands in it). The tolerance avoids a feedback loop with
+        // the clip view's rounding of magnified bounds.
+        let visible = scrollView.contentView.bounds.size
+        if visible.width > 0, abs(textView.frame.width - visible.width) > 0.5
+            || abs(textView.minSize.height - visible.height) > 0.5 {
+            textView.minSize = NSSize(width: 0, height: visible.height)
+            textView.setFrameSize(NSSize(width: visible.width, height: textView.frame.height))
+            textView.sizeToFit()
         }
         updateHeaderSeparator()
     }
@@ -343,6 +335,7 @@ private final class EditorMessageView: NSView {
 
     func show(_ message: PaneMessage) {
         symbolView.image = NSImage(systemSymbolName: message.symbol, accessibilityDescription: nil)
+        symbolView.contentTintColor = message.symbolTint ?? .tertiaryLabelColor
         symbolView.isHidden = message.showsProgress || symbolView.image == nil
         spinner.isHidden = !message.showsProgress
         message.showsProgress ? spinner.startAnimation(nil) : spinner.stopAnimation(nil)
@@ -373,16 +366,35 @@ final class ScrollSynchronizer: NSObject {
     private weak var first: NSScrollView?
     private weak var second: NSScrollView?
     private var isSynchronizing = false
+    /// Settled document heights. A clip view that moves while its document is resizing is following a
+    /// content change (clearing or replacing text), not the user.
+    private var settledHeights: [ObjectIdentifier: CGFloat] = [:]
 
     init(_ first: NSScrollView, _ second: NSScrollView) {
         self.first = first
         self.second = second
         super.init()
+        let center = NotificationCenter.default
         for scrollView in [first, second] {
             scrollView.contentView.postsBoundsChangedNotifications = true
-            NotificationCenter.default.addObserver(self, selector: #selector(boundsDidChange),
-                                                   name: NSView.boundsDidChangeNotification,
-                                                   object: scrollView.contentView)
+            center.addObserver(self, selector: #selector(boundsDidChange),
+                               name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+            guard let document = scrollView.documentView else { continue }
+            document.postsFrameChangedNotifications = true
+            center.addObserver(self, selector: #selector(documentFrameDidChange),
+                               name: NSView.frameDidChangeNotification, object: document)
+        }
+        recordSettledHeights()
+    }
+
+    @objc private func documentFrameDidChange(_ notification: Notification) {
+        // Deferred, so clip view moves caused by the same change still see the old height.
+        DispatchQueue.main.async { [weak self] in self?.recordSettledHeights() }
+    }
+
+    private func recordSettledHeights() {
+        for case let scrollView? in [first, second] {
+            settledHeights[ObjectIdentifier(scrollView)] = scrollView.documentView?.frame.height
         }
     }
 
@@ -390,12 +402,14 @@ final class ScrollSynchronizer: NSObject {
         guard !isSynchronizing, let first, let second else { return }
         let source = (notification.object as? NSClipView) === first.contentView ? first : second
         let target = source === first ? second : first
+        let sourceRange = Self.scrollableHeight(source)
+        guard sourceRange > 0, !source.isHiddenOrHasHiddenAncestor,
+              settledHeights[ObjectIdentifier(source)] == source.documentView?.frame.height else { return }
         isSynchronizing = true
         defer { isSynchronizing = false }
 
-        let sourceRange = Self.scrollableHeight(source)
         let targetRange = Self.scrollableHeight(target)
-        let fraction = sourceRange > 0 ? min(max(source.contentView.bounds.minY / sourceRange, 0), 1) : 0
+        let fraction = min(max(source.contentView.bounds.minY / sourceRange, 0), 1)
         var origin = target.contentView.bounds.origin
         let y = (fraction * targetRange).rounded()
         guard abs(origin.y - y) >= 1 else { return }

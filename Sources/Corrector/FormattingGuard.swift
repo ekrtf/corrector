@@ -6,8 +6,8 @@ enum FormattingGuardError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .changedStructure: return "The model changed punctuation or spacing. Please retry the correction."
-        case .changedProtectedText: return "The model changed a URL or code span. Please retry the correction."
+        case .changedStructure: return "The model changed punctuation or spacing, so its answer was discarded."
+        case .changedProtectedText: return "The model changed a URL or code span, so its answer was discarded."
         }
     }
 }
@@ -46,24 +46,28 @@ enum FormattingGuard {
         let output = NSMutableAttributedString(attributedString: original)
         let protectedRanges = protectedPattern.matches(in: original.string, range: NSRange(location: 0, length: before.length)).map(\.range)
         var changes: [WordChange] = []
-        for (source, result) in zip(sourceWords, resultWords).reversed() {
+        var offset = 0
+        for (source, result) in zip(sourceWords, resultWords) {
             let word = before.substring(with: source)
             let replacement = after.substring(with: result)
-            if identical(word, replacement) { continue }
+            // `==` ignores composed/decomposed accent differences; such words keep their original bytes,
+            // which matters inside URLs and code spans.
+            if word == replacement { continue }
             if protectedRanges.contains(where: { NSIntersectionRange($0, source).length > 0 }) {
                 throw FormattingGuardError.changedProtectedText
             }
+            let target = NSRange(location: source.location + offset, length: source.length)
             let attributes = original.attributes(at: source.location, effectiveRange: nil)
-            output.replaceCharacters(in: source, with: NSAttributedString(string: replacement, attributes: attributes))
-            // A composed/decomposed accent swap looks identical, so it is applied but not reported.
-            if word != replacement {
-                changes.append(WordChange(sourceRange: source, resultRange: result, original: word, replacement: replacement))
-            }
+            output.replaceCharacters(in: target, with: NSAttributedString(string: replacement, attributes: attributes))
+            let length = (replacement as NSString).length
+            changes.append(WordChange(sourceRange: source, resultRange: NSRange(location: target.location, length: length),
+                                      original: word, replacement: replacement))
+            offset += length - source.length
         }
-        return CorrectionOutcome(text: output, changes: changes.reversed())
+        return CorrectionOutcome(text: output, changes: changes)
     }
 
-    /// `==` treats canonically equivalent strings as equal, but the output must match the corrected string exactly.
+    /// `==` treats canonically equivalent strings as equal; punctuation and spacing must match exactly.
     private static func identical(_ first: String, _ second: String) -> Bool {
         first.utf16.elementsEqual(second.utf16)
     }

@@ -20,7 +20,8 @@ The app is for one person on macOS, with AeroSpace managing windows. The user wa
 
 - Pasted rich text keeps its original attributes when words are corrected. A single corrected word containing multiple styles inherits the attributes at its first character.
 - Pasted Markdown is rendered as rich text in the corrected pane; **Copy corrected text** places rich text on the clipboard. Common Markdown constructs are supported; complex nested structures and tables are not yet rendered.
-- Corrections run after paste only. Typing clears the previous result; pasting again starts a new request.
+- Corrections run after paste by default; ⌘↩ checks on demand, and an optional setting checks again after typing pauses. Typing dims the previous result and disables copying until the next check.
+- Text that was not pasted as rich text, and is not rendered from Markdown, is copied as plain text only, so display font and zoom never reach the clipboard.
 - Automatic model selection prioritizes speed among a curated set of general-purpose models, then asks OpenRouter to route to a low-latency provider.
 
 ## Technical findings
