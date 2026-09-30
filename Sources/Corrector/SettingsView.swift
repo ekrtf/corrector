@@ -1,22 +1,19 @@
 import SwiftUI
 
-/// API key state for the Settings window. Keychain access is injected so previews never touch it.
+/// API key state for the Settings window. Storage is injected so previews never touch the real key.
 @MainActor
 final class SettingsModel: ObservableObject {
-    @Published var draftKey = "" {
-        didSet { if draftKey != oldValue { keyError = nil } }
-    }
+    @Published var draftKey = ""
     @Published private(set) var hasKey = false
-    @Published private(set) var keyError: String?
     @Published private(set) var keyFocusRequest = 0
 
     private let keyExists: () -> Bool
-    private let storeKey: (String) -> Bool
-    private let deleteKey: () -> Bool
+    private let storeKey: (String) -> Void
+    private let deleteKey: () -> Void
 
-    init(hasKey: @escaping () -> Bool = { KeychainStore.readKey() != nil },
-         save: @escaping (String) -> Bool = { KeychainStore.saveKey($0) },
-         delete: @escaping () -> Bool = { KeychainStore.deleteKey() }) {
+    init(hasKey: @escaping () -> Bool = { APIKeyStore.read() != nil },
+         save: @escaping (String) -> Void = { APIKeyStore.save($0) },
+         delete: @escaping () -> Void = { APIKeyStore.delete() }) {
         keyExists = hasKey
         storeKey = save
         deleteKey = delete
@@ -27,7 +24,6 @@ final class SettingsModel: ObservableObject {
     /// Reloads the key state and forgets anything typed while the window was last open.
     func reload() {
         draftKey = ""
-        keyError = nil
         hasKey = keyExists()
     }
 
@@ -38,22 +34,14 @@ final class SettingsModel: ObservableObject {
     func saveKey() {
         let key = trimmedDraft
         guard !key.isEmpty else { return }
-        guard storeKey(key) else {
-            keyError = "Couldn’t save the key in the Keychain."
-            return
-        }
+        storeKey(key)
         draftKey = ""
-        keyError = nil
         hasKey = true
         NotificationCenter.default.post(name: .apiKeyDidChange, object: nil)
     }
 
     func removeKey() {
-        guard deleteKey() else {
-            keyError = "Couldn’t remove the key from the Keychain."
-            return
-        }
-        keyError = nil
+        deleteKey()
         hasKey = false
         NotificationCenter.default.post(name: .apiKeyDidChange, object: nil)
     }
@@ -109,7 +97,7 @@ struct SettingsView: View {
                 }
             }
             LabeledContent {
-                if settings.hasKey && settings.keyError == nil {
+                if settings.hasKey {
                     Button("Remove", action: settings.removeKey)
                 }
             } label: {
@@ -121,7 +109,7 @@ struct SettingsView: View {
             Text("OpenRouter")
         } footer: {
             footnote {
-                Text("Text you check is sent to OpenRouter. Corrector does not keep a history.")
+                Text("The key is saved in Corrector’s preferences. Text you check is sent to OpenRouter; Corrector does not keep a history.")
                     .foregroundStyle(.secondary)
                 Link("Get an API key", destination: URL(string: "https://openrouter.ai/keys")!)
             }
@@ -130,15 +118,9 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var keyStatus: some View {
-        if let error = settings.keyError {
+        if settings.hasKey {
             Label {
-                Text(error)
-            } icon: {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
-            }
-        } else if settings.hasKey {
-            Label {
-                Text("Saved in Keychain")
+                Text("Saved on this Mac")
             } icon: {
                 Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
             }

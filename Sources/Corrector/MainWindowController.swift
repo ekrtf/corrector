@@ -1,6 +1,7 @@
 import AppKit
 
-typealias CorrectionService = @Sendable (_ text: String, _ apiKey: String, _ model: String) async throws -> String
+/// Returns the corrected text and the model that produced it, which can be a fallback.
+typealias CorrectionService = @Sendable (_ text: String, _ apiKey: String, _ model: String) async throws -> (text: String, model: String)
 
 @MainActor
 final class MainWindowController: NSWindowController {
@@ -21,7 +22,6 @@ final class MainWindowController: NSWindowController {
 
     private var state = State.idle { didSet { render() } }
     private var sourceWasRichText = false { didSet { sourceView.writesRichText = sourceWasRichText } }
-    private var cachedAPIKey: String?
     private var checkTask: Task<Void, Never>?
     private var typingCheck: Task<Void, Never>?
     private var revision = 0
@@ -37,7 +37,7 @@ final class MainWindowController: NSWindowController {
     private static let zoomLevels: [CGFloat] = [0.75, 0.85, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.5]
 
     init(correct: @escaping CorrectionService = { try await OpenRouterClient().correct($0, apiKey: $1, model: $2) },
-         apiKey: @escaping () -> String? = { KeychainStore.readKey() },
+         apiKey: @escaping () -> String? = { APIKeyStore.read() },
          automaticModel: @escaping @Sendable () async -> String = { await ModelSelector.shared.fastestAvailable() }) {
         correctText = correct
         readAPIKey = apiKey
@@ -200,8 +200,7 @@ final class MainWindowController: NSWindowController {
     // MARK: - Correction flow
 
     private var apiKey: String? {
-        if cachedAPIKey == nil, let key = readAPIKey(), !key.isEmpty { cachedAPIKey = key }
-        return cachedAPIKey
+        readAPIKey()
     }
 
     private func check() {
@@ -234,11 +233,11 @@ final class MainWindowController: NSWindowController {
                 }
                 try Task.checkCancellation()
                 self?.modelResolved(model, revision: checkRevision)
-                let corrected = try await correct(source.string, key, model)
+                let (corrected, usedModel) = try await correct(source.string, key, model)
                 try Task.checkCancellation()
                 guard let self, revision == checkRevision else { return }
                 let outcome = try FormattingGuard.correct(corrected: corrected, original: source)
-                let correction = Correction(source: source, sourceWasRich: sourceWasRich, outcome: outcome, model: model,
+                let correction = Correction(source: source, sourceWasRich: sourceWasRich, outcome: outcome, model: usedModel,
                                             duration: Date().timeIntervalSince(started), format: Preferences.format)
                 // Composing an accent changes the text without a change notification, so the revision can miss it.
                 state = sourceView.attributedString().isEqual(to: source) ? .done(correction) : .stale(correction)
@@ -312,7 +311,6 @@ final class MainWindowController: NSWindowController {
     }
 
     private func apiKeyDidChange() {
-        cachedAPIKey = nil
         let hasKey = hasAPIKey
         switch state {
         case .missingKey where hasKey:

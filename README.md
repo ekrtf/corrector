@@ -6,7 +6,7 @@ A small floating macOS app for spelling corrections in French and English.
 
 Run `./install.sh` in this directory. It builds the app with the macOS Swift command-line tools and puts `Corrector.app` in `~/Applications`. Launch **Corrector** from Raycast or Spotlight. No Xcode project or menu-bar item is required.
 
-On first launch, Settings opens so you can enter an OpenRouter API key. The app stores it in the macOS Keychain. Pasted text is sent to OpenRouter; the app does not save a text history.
+On first launch, Settings opens so you can enter an OpenRouter API key. The app stores it in its preferences (`defaults write com.emile.corrector openRouterAPIKey <key>` also works), not in the Keychain, so rebuilt copies don't ask for your password. Pasted text is sent to OpenRouter; the app does not save a text history.
 
 ## Use
 
@@ -14,7 +14,7 @@ Paste text into **Original**. Corrector checks it automatically and shows the re
 
 You can also type in **Original**. The previous result stays visible but dimmed until you check again with ⌘↩. **Apply Corrections to Original** (⌥⌘↩) replaces the original with the corrected text as one undoable edit, so you can keep writing.
 
-The model menu defaults to **Automatic**, which picks the fastest model. It checks OpenRouter's recent latency ranking and selects the first available model from a small set of general-purpose models suitable for French and English. The selection is cached for 30 minutes. You can choose a listed model or enter any OpenRouter model ID with **Other Model…**.
+The model menu defaults to **Automatic**, which picks the fastest model. It checks OpenRouter's recent latency ranking and selects the first available model from a small set of general-purpose models suitable for French and English. The selection is cached for 30 minutes. If the model's providers are rate-limited or down, OpenRouter falls back to the next listed model, and the window subtitle names the model that answered. You can choose a listed model or enter any OpenRouter model ID with **Other Model…**.
 
 **Detect Format** treats pasted rich text as rich text. For plain text containing common Markdown markers, it renders the correction as rich text. You can force Plain Text, Markdown, or Rich Text with the format menu. Markdown rendering covers headings, nested lists, blockquotes (as indented italic paragraphs), bold, italic, strikethrough, links, inline code, and fenced code. The original remains visible as pasted.
 
