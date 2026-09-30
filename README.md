@@ -29,7 +29,7 @@ Settings (⌘,) holds the API key, the model, and three behaviors: check after p
 | Check spelling | ⌘↩ |
 | Copy corrected text | ⇧⌘C |
 | Apply corrections to original | ⌥⌘↩ |
-| New (clear both panes) | ⌘N |
+| New: clear both panes, or reopen the window after ⌘W | ⌘N |
 | Focus Original / Corrected | ⌘1 / ⌘2 |
 | Zoom in / out / actual size | ⌘+ / ⌘− / ⌘0 |
 | Find, find next, find previous | ⌘F, ⌘G, ⇧⌘G |

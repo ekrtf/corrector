@@ -28,6 +28,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         true
     }
 
+    /// Reached only when the main window is not in the responder chain, for example after ⌘W hid it.
+    @objc func newDocument(_ sender: Any?) {
+        mainWindow.showAndFocus()
+        mainWindow.newDocument(sender)
+    }
+
     @objc func showSettings(_ sender: Any?) {
         SettingsWindowController.shared.show()
     }
