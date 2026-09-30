@@ -25,7 +25,7 @@ actor ModelSelector {
             request.timeoutInterval = 10
             let (data, response) = try await URLSession.shared.data(for: request)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { return "openrouter/auto" }
-            let catalog = try JSONDecoder().decode(ModelCatalog.self, from: data)
+            let catalog = try JSONDecoder().decode(OpenRouterModelList.self, from: data)
             guard let model = catalog.data.first(where: { candidates.contains($0.id) })?.id else {
                 return "openrouter/auto"
             }
@@ -37,7 +37,7 @@ actor ModelSelector {
     }
 }
 
-private struct ModelCatalog: Decodable {
+private struct OpenRouterModelList: Decodable {
     struct Model: Decodable { let id: String }
     let data: [Model]
 }
