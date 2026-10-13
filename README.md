@@ -2,6 +2,8 @@
 
 A small floating macOS app for spelling corrections in French and English.
 
+This is a personal tool, shared as is. It sends the text you paste to [OpenRouter](https://openrouter.ai) using your own API key, so OpenRouter's and the model provider's data policies apply to that text, and requests are billed to your account.
+
 ## Install
 
 Run `./install.sh` in this directory. It builds the app with the macOS Swift command-line tools and puts `Corrector.app` in `~/Applications`. Launch **Corrector** from Raycast or Spotlight. No Xcode project or menu-bar item is required.
@@ -58,3 +60,7 @@ Then reload AeroSpace's configuration.
 - `swiftc Sources/Corrector/Corrections.swift Tests/CorrectionDiffTests.swift -o /tmp/corrector-diff-tests && /tmp/corrector-diff-tests` checks how corrections are compared and highlighted.
 - `swiftc -parse-as-library Sources/Corrector/MarkdownRenderer.swift Tests/MarkdownRenderingTests.swift -o /tmp/corrector-markdown-tests && /tmp/corrector-markdown-tests` checks Markdown rendering.
 - `swift scripts/make-icon.swift` regenerates `Resources/AppIcon.icns`.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
